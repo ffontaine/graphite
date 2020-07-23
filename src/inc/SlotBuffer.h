@@ -65,10 +65,32 @@ private:
         T _value;
     };
 
+    struct _head_node : public _node_linkage {
+        uintptr_t const _head_node_signature;
+
+        uintptr_t get_signature() const {
+            return uintptr_t(this);
+        }
+
+        _head_node(): _node_linkage{this,this}, _head_node_signature{get_signature()} {}
+
+        bool is_head_node() const {
+            return get_signature() == _head_node_signature;
+        }
+        
+        SlotBuffer const * get_container() const {
+            return reinterpret_cast<SlotBuffer const *>(_head_node_signature - reinterpret_cast<uintptr_t>(&((SlotBuffer *)0)->_head));
+        }
+
+        SlotBuffer * get_container() {
+            return const_cast<SlotBuffer *>(const_cast<_head_node const *>(this)->get_container());
+        }
+    };
+
     vector<_node_linkage *> _slots_storage;
     vector<int16 *>     _attrs_storage;
     _node_linkage    *  _free_list;
-    _node_linkage       _head;
+    _head_node          _head;
     size_type           _size;
     size_type const     _attrs_size,
                         _chunk_size;
@@ -146,6 +168,7 @@ class SlotBuffer::_iterator
     // This is extermely dangerous if performed on a T* that is not an
     // agreggate member of class S.
     template<class S>
+    inline
     static constexpr S* container_of(void const *p, T S::* m) noexcept {
         return reinterpret_cast<S *>(
                     reinterpret_cast<uint8_t const *>(p) 
@@ -153,8 +176,13 @@ class SlotBuffer::_iterator
     }
     
     static _node<T> * node(_iterator<T> const &i) noexcept { 
+//        assert(i._p); 
         return const_cast<_node<T> *>(static_cast<_node<T> const *>(i._p)); 
     }
+
+    _iterator(std::nullptr_t)  noexcept: _p{nullptr} {}
+    _iterator(_node_linkage const *p)  noexcept: _p{p} {}
+    friend Segment;
 
 public:
     using iterator_category = std::bidirectional_iterator_tag;
@@ -165,18 +193,18 @@ public:
     using opaque_type = gr_slot const *;
 
     // TODO: Remove soon
-    auto next() -> decltype(_p) const { return _p->_next; }
-    void next(_iterator<T> i) { const_cast<_node_linkage*>(_p)->_next = const_cast<_node_linkage*>(i._p); }
+    auto next() -> _iterator<T> const { assert(_p); return _p->_next; }
+    void next(_iterator<T> i) { assert(_p); const_cast<_node_linkage*>(_p)->_next = const_cast<_node_linkage*>(i._p); }
 
-    auto prev() -> decltype(_p) const { return _p->_prev; }
-    void prev(_iterator<T> i) { const_cast<_node_linkage*>(_p)->_prev = const_cast<_node_linkage*>(i._p); }
+    auto prev() -> _iterator<T> const { assert(_p); return _p->_prev; }
+    void prev(_iterator<T> i) { assert(_p); const_cast<_node_linkage*>(_p)->_prev = const_cast<_node_linkage*>(i._p); }
 
     // TODO
     // static _iterator<T> from(T &r) noexcept { 
     //     return _iterator<T>(container_of<_node<T>>(&r, &_node<T>::_value)); 
     // }
-    static _iterator<T> from(T *r) noexcept { 
-        return r ? _iterator<T>(container_of<_node<T>>(r, &_node<T>::_value)) : nullptr; 
+    static _iterator<T> from(T *r) noexcept {  
+        return r ? _iterator<T>{container_of<_node<T>>(r, &_node<T>::_value)} : _iterator<T>{nullptr}; 
     }
 
 
@@ -186,9 +214,7 @@ public:
         _p = container_of<_node<T>>(p, &_node<T>::_value);
     }
 
-    _iterator(std::nullptr_t): _iterator() {}
-    _iterator(_node_linkage const *p)  noexcept: _p{p} {}
-    _iterator()  noexcept: _p{nullptr} {}
+    _iterator(): _iterator{nullptr} {}
     _iterator(opaque_type p): _iterator{reinterpret_cast<_node_linkage *>(const_cast<gr_slot*>(p))} {}
 
 
@@ -198,31 +224,75 @@ public:
     reference operator*() const noexcept { return node(*this)->_value; }
     pointer operator->() const  noexcept { return &operator*(); }
 
-    _iterator<T> &  operator++()     noexcept { _p = _p->_next; return *this; }
+    _iterator<T> &  operator++()     noexcept { assert(_p); _p = _p->_next; return *this; }
     _iterator<T>    operator++(int)  noexcept { _iterator<T> tmp(*this); operator++(); return tmp; }
 
-    _iterator<T> &  operator--() noexcept    { _p = _p->_prev; return *this; }
+    _iterator<T> &  operator--() noexcept    { assert(_p); _p = _p->_prev; return *this; }
     _iterator<T>    operator--(int) noexcept { _iterator<T> tmp(*this); operator--(); return tmp; }
 
-    opaque_type handle() const noexcept { return reinterpret_cast<opaque_type>(_p); }
+    bool        is_valid() const noexcept { return _p != nullptr; }
+
+    opaque_type handle() const noexcept { 
+        return _p && !static_cast<_head_node const *>(_p)->is_head_node() 
+                    ? reinterpret_cast<opaque_type>(_p) 
+                    : nullptr; 
+    }
     
-    operator bool() const         noexcept { return _p != nullptr; }
-    operator pointer() const      noexcept { return operator->(); }
+    // operator bool() const         noexcept { return _p != nullptr; }
+    // operator pointer() const      noexcept { return operator->(); }
     operator _iterator<T const>() noexcept { return _iterator<const T>(_p); }
 };
 
-inline SlotBuffer::iterator SlotBuffer::newSlot() { auto r = _allocate_node(); r->_next = r->_prev = nullptr; return r; }
+inline 
+auto SlotBuffer::newSlot() -> iterator { 
+    auto r = _allocate_node(); 
+    if (!r) return end();
+    r->_next = r->_prev = nullptr; 
+    return iterator(r); 
+}
+
 inline void                 SlotBuffer::freeSlot(iterator i) { _free_node(iterator::node(i)); }
 
 inline auto SlotBuffer::begin() noexcept -> iterator { return iterator(_head._next); }
 inline auto SlotBuffer::begin() const noexcept -> const_iterator { return cbegin(); }
 inline auto SlotBuffer::cbegin() const noexcept -> const_iterator { return const_iterator(_head._next); }
 
-inline auto SlotBuffer::end() noexcept -> iterator { return iterator(/*TODO: &_head*/); }
+inline auto SlotBuffer::end() noexcept -> iterator { return iterator{&_head}; }
 inline auto SlotBuffer::end() const noexcept -> const_iterator { return cend(); }
-inline auto SlotBuffer::cend() const noexcept -> const_iterator { return const_iterator(/*TODO: &_head*/); }
+inline auto SlotBuffer::cend() const noexcept -> const_iterator { return const_iterator{&_head}; }
 
 inline void SlotBuffer::pop_back() { erase(iterator(_head._prev)); }
+
+
+template <typename T>
+class sibling_iterator : public SlotBuffer::_iterator<T>
+{
+public:
+    using iterator_category = std::forward_iterator_tag;
+
+    sibling_iterator(SlotBuffer::_iterator<T> &i) 
+    : SlotBuffer::_iterator<T>{i}
+    {
+        decltype(i)::to_cluster_root();
+    }
+
+    sibling_iterator<T> &  operator++() noexcept { 
+        auto s = SlotBuffer::_iterator<T>::handle();
+        assert(s);
+        s = s->nextSibling();
+        if (s) *this = SlotBuffer::_iterator<T>::from(s);
+        else
+        {
+            while (!static_cast<SlotBuffer::_head_node const *>(s)->is_head_node())
+                SlotBuffer::_iterator<T>::operator++();
+        }
+        return *this; 
+    }
+    sibling_iterator<T>  operator++(int)  noexcept { decltype(*this) tmp(*this); operator++(); return tmp; }
+
+    SlotBuffer::_iterator<T> &  operator--() noexcept = delete;
+    SlotBuffer::_iterator<T>    operator--(int) noexcept = delete;
+};
 
 } // namespace graphite2
 

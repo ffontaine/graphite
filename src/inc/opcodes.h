@@ -201,7 +201,7 @@ ENDOP
 
 STARTOP(next)
     if (map - &smap[0] >= int(smap.size())) DIE
-    if (is)
+    if (is != seg.slots().end())
     {
         if (is == smap.highwater())
             smap.highpassed(true);
@@ -235,7 +235,7 @@ STARTOP(put_subs_8bit_obs)
                         output_class = uint8(param[2]);
     uint16 index;
     slotref slot = slotat(slot_ref);
-    if (slot)
+    if (slot != seg.slots().end())
     {
         index = seg.findClassIndex(input_class, slot->gid());
         is->setGlyph(seg, seg.getClassGlyph(output_class, index));
@@ -245,24 +245,26 @@ ENDOP
 STARTOP(put_copy)
     declare_params(1);
     const int  slot_ref = int8(*param);
-    if (is && !is->isDeleted())
+    if (is != seg.slots().end() && !is->isDeleted())
     {
         auto ref = slotat(slot_ref);
-        if (ref && ref != is)
+        if (ref != seg.slots().end() && ref != is)
         {
             int16 *tempUserAttrs = is->userAttrs();
             if (is->attachedTo() || is->firstChild()) DIE
             auto prev = std::prev(is);
             auto next = std::next(is);
             memcpy(tempUserAttrs, ref->userAttrs(), seg.numAttrs() * sizeof(uint16));
-            memcpy(is, ref, sizeof(Slot));
+            memcpy(&*is, &*ref, sizeof(Slot));
             is->firstChild(NULL);
             is->nextSibling(NULL);
             is->userAttrs(tempUserAttrs);
+            assert(is.next() == next);
+            assert(is.prev() == prev);
             is.next(next);
             is.prev(prev);
             if (is->attachedTo())
-                is->attachedTo()->child(is);
+                is->attachedTo()->child(&*is);
         }
         is->markCopied(false);
         is->markDeleted(false);
@@ -272,28 +274,31 @@ ENDOP
 STARTOP(insert)
     if (smap.decMax() <= 0) DIE;
     auto newSlot = seg.newSlot();
-    if (!newSlot) DIE;
+    if (newSlot == seg.slots().end()) DIE;
     auto iss = is;
     while (iss != seg.slots().end() && iss->isDeleted()) ++iss;
-    if (!iss)
+    if (iss == seg.slots().end())
     {
         // At last slot
-        if (seg.last())
+        if (!seg.slots().empty())
         {
             // Append a slot on the end
-            seg.last().next(newSlot);
             newSlot.prev(seg.last());
+            // newSlot.next(std::next(seg.last()));
+            seg.last().next(newSlot);
             newSlot->before(seg.last()->before());
             seg.last(newSlot);
         }
         else
         {
             // Append a slot on the end special case for empty segment
+            newSlot.prev(std::prev(seg.first()));
+            // newSlot.next(std::next(seg.last()));
             seg.first(newSlot);
             seg.last(newSlot);
         }
     }
-    else if (std::prev(iss))
+    else if (std::prev(iss) != seg.slots().end())
     {
         // Partial insert new slot before iss
         std::prev(iss).next(newSlot);
@@ -303,20 +308,20 @@ STARTOP(insert)
     else
     {
         // Insert new slot at the start of the segment
-        newSlot.prev(nullptr);
-        newSlot->before(iss->before());
+        newSlot.prev(std::prev(seg.first()));
         seg.first(newSlot);
+        newSlot->before(iss->before());
     }
     // Forward link to iss
     newSlot.next(iss);
-    if (iss)
+    if (iss != seg.slots().end())
     {
         // back link from iss to new slot
         iss.prev(newSlot);
         newSlot->originate(iss->original());
         newSlot->after(iss->before());
     }
-    else if (newSlot.prev())
+    else if (std::prev(newSlot) != seg.slots().end())
     {
         newSlot->originate(std::prev(newSlot)->original());
         newSlot->after(std::prev(newSlot)->after());
@@ -334,14 +339,14 @@ STARTOP(insert)
 ENDOP
 
 STARTOP(delete_)
-    if (!is || is->isDeleted()) DIE
+    if (is == seg.slots().end() || is->isDeleted()) DIE
     is->markDeleted(true);
-    if (std::prev(is))
+    if (std::prev(is) != seg.slots().end())
         std::prev(is).next(std::next(is));
     else
         seg.first(std::next(is));
 
-    if (std::next(is))
+    if (std::next(is) != seg.slots().end())
         std::next(is).prev(std::prev(is));
     else
         seg.last(std::prev(is));
@@ -349,7 +354,7 @@ STARTOP(delete_)
 
     if (is == smap.highwater())
             smap.highwater(std::next(is));
-    if (std::prev(is)) --is;
+    if (std::prev(is) != seg.slots().end()) --is;
     seg.extendLength(-1);
 ENDOP
 
@@ -365,8 +370,8 @@ STARTOP(assoc)
     {
         int sr = *assocs++;
         slotref ts = slotat(sr);
-        if (ts && (min == -1 || ts->before() < min)) min = ts->before();
-        if (ts && ts->after() > max) max = ts->after();
+        if (ts != seg.slots().end() && (min == -1 || ts->before() < min)) min = ts->before();
+        if (ts != seg.slots().end() && ts->after() > max) max = ts->after();
     }
     if (min > -1)   // implies max > -1
     {
@@ -449,7 +454,7 @@ STARTOP(push_slot_attr)
         flags |= POSITIONED;
     }
     slotref slot = slotat(slot_ref);
-    if (slot)
+    if (slot != seg.slots().end())
     {
         int res = slot->getAttr(seg, slat, 0);
         push(res);
@@ -461,7 +466,7 @@ STARTOP(push_glyph_attr_obs)
     const unsigned int  glyph_attr = uint8(param[0]);
     const int           slot_ref   = int8(param[1]);
     slotref slot = slotat(slot_ref);
-    if (slot)
+    if (slot != seg.slots().end())
         push(int32(seg.glyphAttr(slot->gid(), glyph_attr)));
 ENDOP
 
@@ -471,8 +476,8 @@ STARTOP(push_glyph_metric)
     const int           slot_ref    = int8(param[1]);
     const signed int    attr_level  = uint8(param[2]);
     slotref slot = slotat(slot_ref);
-    if (slot)
-        push(seg.getGlyphMetric(slot, glyph_attr, attr_level, dir));
+    if (slot != seg.slots().end())
+        push(seg.getGlyphMetric(&*slot, glyph_attr, attr_level, dir));
 ENDOP
 
 STARTOP(push_feat)
@@ -480,7 +485,7 @@ STARTOP(push_feat)
     const unsigned int  feat        = uint8(param[0]);
     const int           slot_ref    = int8(param[1]);
     slotref slot = slotat(slot_ref);
-    if (slot)
+    if (slot != seg.slots().end())
     {
         uint8 fid = seg.charinfo(slot->original())->fid();
         push(seg.getFeature(fid, feat));
@@ -492,7 +497,7 @@ STARTOP(push_att_to_gattr_obs)
     const unsigned int  glyph_attr  = uint8(param[0]);
     const int           slot_ref    = int8(param[1]);
     slotref slot = slotat(slot_ref);
-    if (slot)
+    if (slot != seg.slots().end())
     {
         auto att = slot->attachedTo();
         auto ref = att ? *att : *slot;
@@ -506,10 +511,10 @@ STARTOP(push_att_to_glyph_metric)
     const int           slot_ref    = int8(param[1]);
     const signed int    attr_level  = uint8(param[2]);
     slotref slot = slotat(slot_ref);
-    if (slot)
+    if (slot != seg.slots().end())
     {
         auto parent = slot->attachedTo();
-        if (!parent) parent = slot;
+        if (!parent) parent = &*slot;
         push(int32(seg.getGlyphMetric(parent, glyph_attr, attr_level, dir)));
     }
 ENDOP
@@ -525,7 +530,7 @@ STARTOP(push_islot_attr)
         flags |= POSITIONED;
     }
     slotref slot = slotat(slot_ref);
-    if (slot)
+    if (slot != seg.slots().end())
     {
         int res = slot->getAttr(seg, slat, idx);
         push(res);
@@ -604,7 +609,7 @@ STARTOP(put_subs)
     const unsigned int  output_class = uint8(param[3]) << 8
                                      | uint8(param[4]);
     slotref slot = slotat(slot_ref);
-    if (slot)
+    if (slot != seg.slots().end())
     {
         int index = seg.findClassIndex(input_class, slot->gid());
         is->setGlyph(seg, seg.getClassGlyph(output_class, index));
@@ -634,7 +639,7 @@ STARTOP(push_glyph_attr)
                                     | uint8(param[1]);
     const int           slot_ref    = int8(param[2]);
     slotref slot = slotat(slot_ref);
-    if (slot)
+    if (slot != seg.slots().end())
         push(int32(seg.glyphAttr(slot->gid(), glyph_attr)));
 ENDOP
 
@@ -644,7 +649,7 @@ STARTOP(push_att_to_glyph_attr)
                                     | uint8(param[1]);
     const int           slot_ref    = int8(param[2]);
     slotref slot = slotat(slot_ref);
-    if (slot)
+    if (slot != seg.slots().end())
     {
         auto att = slot->attachedTo();
         auto ref = att ? *att : *slot;
@@ -654,10 +659,10 @@ ENDOP
 
 STARTOP(temp_copy)
     slotref newSlot = seg.newSlot();
-    if (!newSlot || !is) DIE;
+    if (newSlot == seg.slots().end() || is == seg.slots().end()) DIE;
     // copy slot is into new slot
     int16 *tempUserAttrs = newSlot->userAttrs();
-    memcpy(newSlot, is, sizeof(Slot));
+    memcpy(&*newSlot, &*is, sizeof(Slot));
     memcpy(tempUserAttrs, is->userAttrs(), seg.numAttrs() * sizeof(uint16));
     newSlot->userAttrs(tempUserAttrs);
     newSlot->markCopied(true);
@@ -694,7 +699,7 @@ STARTOP(set_feat)
     const unsigned int  feat        = uint8(param[0]);
     const int           slot_ref    = int8(param[1]);
     slotref slot = slotat(slot_ref);
-    if (slot)
+    if (slot != seg.slots().end())
     {
         uint8 fid = seg.charinfo(slot->original())->fid();
         seg.setFeature(fid, feat, pop());

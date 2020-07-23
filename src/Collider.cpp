@@ -558,7 +558,7 @@ bool ShiftCollider::mergeSlot(Segment & seg, Slot & slot, const SlotCollision *c
     {
         // Set up the bogus slot representing the exclusion glyph.
         auto exclSlot = seg.newSlot();
-        if (!exclSlot)
+        if (exclSlot == seg.slots().end())
             return res;
         exclSlot->setGlyph(seg, cslot->exclGlyph());
         Position exclOrigin(slot.origin() + cslot->exclOffset());

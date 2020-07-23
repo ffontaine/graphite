@@ -36,6 +36,7 @@ of the License or (at your option) any later version.
 #include <utility>
 #include "inc/json.h"
 #include "inc/Position.h"
+#include "inc/SlotBuffer.h"
 
 namespace graphite2
 {
@@ -48,7 +49,10 @@ typedef std::pair<Segment const * const, Slot const * const>    dslot;
 struct objectid
 {
     char name[16];
-    objectid(const Segment * const p, Slot const * s=nullptr) noexcept;
+    objectid(const Segment * const p, Slot const * s) noexcept;
+    objectid(const Segment * const p)  noexcept { set_name(p,0); }
+private:
+    void set_name(void const * addr, uint16 generation) noexcept;
 };
 
 

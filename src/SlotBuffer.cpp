@@ -44,9 +44,9 @@ namespace
 #endif
 }
 
+
 SlotBuffer::SlotBuffer(size_t chunk_size, size_t num_user)
 : _free_list{nullptr},
-  _head{&_head,&_head},
   _size{0},
   _attrs_size{num_user},
   _chunk_size{chunk_size}

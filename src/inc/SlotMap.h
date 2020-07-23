@@ -82,10 +82,10 @@ private:
 
 inline
 SlotMap::SlotMap(Segment & seg, uint8 direction, size_t maxSize)
-: segment(seg), m_size(0), m_precontext(0), m_highwater(nullptr),
+: segment(seg), m_size(0), m_precontext(0),
     m_maxSize(int(maxSize)), m_dir(direction), m_highpassed(false)
 {
-    m_slot_map[0] = nullptr;
+    m_slot_map[0] = value_type();
 }
 
 inline
@@ -118,7 +118,7 @@ void SlotMap::reset(SlotBuffer::iterator i, short unsigned int ctxt)
 {
   m_size = 0;
   m_precontext = ctxt;
-  *m_slot_map = std::prev(i);
+  m_slot_map[0] = --i;
 }
 
 inline

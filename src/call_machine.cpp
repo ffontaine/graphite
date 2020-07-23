@@ -108,7 +108,7 @@ Machine::stack_t  Machine::run(const instr   * program,
                                slotref     * & map)
 
 {
-    assert(program != 0);
+    assert(program != nullptr);
 
     // Declare virtual machine registers
     const instr   * ip = program-1;

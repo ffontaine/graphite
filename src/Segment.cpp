@@ -61,8 +61,8 @@ Segment::Segment(size_t numchars, const Face* face, uint32 script, int textDir)
   m_passBits(m_silf->aPassBits() ? -1 : 0)
 {
     m_bufSize = log_binary(numchars)+1;
-    first(nullptr);
-    last(nullptr);
+    first(m_srope.end());
+    last(m_srope.end());
 }
 
 Segment::~Segment()
@@ -80,8 +80,8 @@ Segment::~Segment()
 void Segment::appendSlot(int id, int cid, int gid, int iFeats, size_t coffset)
 {
     auto aSlot = newSlot();
-
-    if (!aSlot) return;
+    if (aSlot == slots().end()) return;
+    
     m_charinfo[id].init(cid);
     m_charinfo[id].feats(iFeats);
     m_charinfo[id].base(coffset);
@@ -93,10 +93,10 @@ void Segment::appendSlot(int id, int cid, int gid, int iFeats, size_t coffset)
     aSlot->originate(id);
     aSlot->before(id);
     aSlot->after(id);
-    if (last()) last().next(aSlot);
     aSlot.prev(last());
+    aSlot.next(std::next(last()));
+    last().next(aSlot);
     last(aSlot);
-    if (!first()) first(aSlot);
     if (theGlyph && m_silf->aPassBits())
         m_passBits &= theGlyph->attrs()[m_silf->aPassBits()]
                     | (m_silf->numPasses() > 16 ? (theGlyph->attrs()[m_silf->aPassBits() + 1] << 16) : 0);
@@ -105,7 +105,7 @@ void Segment::appendSlot(int id, int cid, int gid, int iFeats, size_t coffset)
 SlotBuffer::iterator Segment::newSlot()
 {
     if (m_numGlyphs > m_numCharinfo * MAX_SEG_GROWTH_FACTOR)
-        return nullptr;
+        return m_srope.end();
     
     return m_srope.newSlot();
 }
@@ -150,61 +150,51 @@ void Segment::freeJustify(SlotJustify *aJustify)
 void Segment::reverseSlots()
 {
     m_dir = m_dir ^ 64;                 // invert the reverse flag
-    // if (first() == last()) return;      // skip 0 or 1 glyph runs
-
-    // for (auto && s: slots())
-    // {
-    //     if (s.getBidiClass() == -1)
-    //         s.setBidiClass(int8(glyphAttr(s.gid(), m_silf->aBidi())));
-    // }
-
     if (first() == last()) return;      // skip 0 or 1 glyph runs
 
-    SlotBuffer::iterator curr = first(), 
-          t,
-          tlast,
-          tfirst,
-          out;
+    auto curr = first();
+    while (curr != slots().end() && curr->getBidiClass() == 16) ++curr;
+    if (curr == slots().end()) return;
 
-    while (curr && curr->getBidiClass() == 16) ++curr;
-    if (!curr) return;
-    tfirst = std::prev(curr);
-    tlast = curr;
+    auto tfirst = std::prev(curr),
+         out = slots().end(),
+         tlast = curr;
 
-    while (curr)
+    while (curr != slots().end())
     {
+        decltype(curr) curr_next;
         if (curr->getBidiClass() == 16)
         {
             auto d = std::next(curr);
-            while (d && d->getBidiClass() == 16) ++d;
+            while (d != slots().end() && d->getBidiClass() == 16) ++d;
 
-            d = d ? std::prev(d) : last();
+            d = d != slots().end() ? std::prev(d) : last();
             auto p = std::next(out);    // one after the diacritics. out can't be null
-            if (p)
+            if (p != slots().end())
                 p.prev(d);
             else
                 tlast = d;
-            t = std::next(d);
+            curr_next = std::next(d);
             d.next(p);
             curr.prev(out);
             out.next(curr);
         }
-        else    // will always fire first time round the loop
+        else    // Pop curr onto the front of out
         {
-            if (out)
-                out.prev(curr);
-            t = std::next(curr);
+            out.prev(curr);
+            curr_next = std::next(curr);
             curr.next(out);
             out = curr;
         }
-        curr = t;
+        curr = curr_next;
     }
     out.prev(tfirst);
-    if (tfirst)
+    if (tfirst != slots().end())
         tfirst.next(out);
     else
         first(out);
     last(tlast);
+    tlast.next(slots().end());
 }
 
 void Segment::linkClusters(SlotBuffer::iterator s, SlotBuffer::iterator  end)
@@ -220,7 +210,7 @@ void Segment::linkClusters(SlotBuffer::iterator s, SlotBuffer::iterator  end)
         {
             if (!s->isBase())   continue;
 
-            s->sibling(ls);
+            s->sibling(&*ls);
             ls = s;
         }
     }
@@ -230,7 +220,7 @@ void Segment::linkClusters(SlotBuffer::iterator s, SlotBuffer::iterator  end)
         {
             if (!s->isBase())   continue;
 
-            ls->sibling(s);
+            ls->sibling(&*s);
             ls = s;
         }
     }
@@ -238,6 +228,8 @@ void Segment::linkClusters(SlotBuffer::iterator s, SlotBuffer::iterator  end)
 
 Position Segment::positionSlots(Font const * font, SlotBuffer::iterator first, SlotBuffer::iterator last, bool isRtl, bool isFinal)
 {
+    assert(first.is_valid() || first == slots().end());
+//    assert(last.is_valid() || first == slots().end());
     Position currpos(0., 0.);
     float clusterMin = 0.;
     Rect bbox;
@@ -250,10 +242,10 @@ Position Segment::positionSlots(Font const * font, SlotBuffer::iterator first, S
         first = last;
         last = temp;
     }
-    if (!first)    first = this->first();
-    if (!last)     last  = this->last();
+    if (first == slots().end())    first = this->first();
+    if (last == slots().end())     last  = this->last();
 
-    if (!first || !last)   // only true for empty segments
+    if (slots().empty())   // only true for empty segments
         return currpos;
 
     if (isRtl)

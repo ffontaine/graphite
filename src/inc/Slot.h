@@ -65,7 +65,8 @@ class Slot
         INSERTED    = 2,
         COPIED      = 4,
         POSITIONED  = 8,
-        ATTACHED    = 16
+        ATTACHED    = 16,
+        END_OF_LINE = 32
     };
 
 public:
@@ -101,12 +102,14 @@ public:
     bool isBase() const { return (!m_parent); }
     void update(int numSlots, int numCharInfo, Position &relpos);
     Position finalise(const Segment & seg, const Font* font, Position & base, Rect & bbox, uint8 attrLevel, float & clusterMin, bool rtl, bool isFinal, int depth = 0);
-    bool isDeleted() const { return (m_flags & DELETED) ? true : false; }
+    bool isDeleted() const { return m_flags & DELETED; }
     void markDeleted(bool state) { if (state) m_flags |= DELETED; else m_flags &= ~DELETED; }
-    bool isCopied() const { return (m_flags & COPIED) ? true : false; }
+    bool isCopied() const { return m_flags & COPIED; }
     void markCopied(bool state) { if (state) m_flags |= COPIED; else m_flags &= ~COPIED; }
-    bool isPositioned() const { return (m_flags & POSITIONED) ? true : false; }
+    bool isPositioned() const { return m_flags; }
     void markPositioned(bool state) { if (state) m_flags |= POSITIONED; else m_flags &= ~POSITIONED; }
+    bool isEndOfLine() const { return m_flags & END_OF_LINE; }
+    void markEndOfLine(bool state) { if (state) m_flags |= END_OF_LINE; else m_flags &= ~END_OF_LINE; }
     bool isInsertBefore() const { return !(m_flags & INSERTED); }
     uint8 getBidiLevel() const { return m_bidiLevel; }
     void setBidiLevel(uint8 level) { m_bidiLevel = level; }

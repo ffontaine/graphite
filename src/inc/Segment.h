@@ -104,7 +104,14 @@ public:
     void freeSlot(SlotBuffer::iterator);
     SlotJustify *newJustify();
     void freeJustify(SlotJustify *aJustify);
-    Position positionSlots(Font const * font=nullptr, SlotBuffer::iterator first=nullptr, SlotBuffer::iterator last=nullptr, bool isRtl = false, bool isFinal = true);
+
+    Position positionSlots(
+        Font const * font, 
+        SlotBuffer::iterator first, 
+        SlotBuffer::iterator last, 
+        bool isRtl = false, 
+        bool isFinal = true);
+
     void associateChars(int offset, size_t num);
     void linkClusters(SlotBuffer::iterator, SlotBuffer::iterator last);
     uint16 getClassGlyph(uint16 cid, uint16 offset) const { return m_silf->getClassGlyph(cid, offset); }

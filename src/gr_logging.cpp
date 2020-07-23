@@ -258,9 +258,15 @@ graphite2::objectid::objectid(const Segment * const seg, Slot const * s) noexcep
         o = SlotBuffer::const_iterator::from(s).handle();
         g = o ? s->userAttrs()[seg->silf()->numUser()] : 0;
     }
-    uint32 const p = uint32(reinterpret_cast<size_t>(o));
-    sprintf(name, "%.4x-%.2x-%.4hx", uint16(p >> 16), g, uint16(p));
+    set_name(o, g);
+}
+
+void graphite2::objectid::set_name(void const * addr, uint16 generation) noexcept
+{
+    uint32 const p = uint32(reinterpret_cast<size_t>(addr));
+    sprintf(name, "%.4x-%.2x-%.4hx", uint16(p >> 16), generation, uint16(p));
     name[sizeof name-1] = 0;
 }
+
 
 #endif
